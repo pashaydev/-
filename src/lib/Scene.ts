@@ -1,7 +1,24 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { OrbitControls } from 'three/examples/jsm/Addons.js';
+import { BloomPass, OrbitControls } from 'three/examples/jsm/Addons.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { LuminosityShader } from 'three/addons/shaders/LuminosityShader.js';
+import { ToonShader1 } from 'three/examples/jsm/Addons.js';
+// glow shader
+import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
+import { ACESFilmicToneMappingShader } from 'three/examples/jsm/shaders/ACESFilmicToneMappingShader.js';
+
+import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
+
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
+import { RectAreaLightNode } from 'three/webgpu';
 
 // Improved interfaces for better type safety
 interface InteractiveObject {
@@ -71,13 +88,14 @@ export class Scene {
 		this.initLoaders();
 		this.addLights();
 		this.addEventListeners();
+		this.initPostProcessing();
 		this.animate();
 
 		const wall = new THREE.Mesh(
 			new THREE.PlaneGeometry(50, 50),
 			new THREE.MeshStandardMaterial({ color: 0xffffff })
 		);
-		wall.position.set(0, -2.5, -3);
+		wall.position.set(0, -2.5, -6);
 		wall.castShadow = true;
 		wall.receiveShadow = true;
 
@@ -89,6 +107,36 @@ export class Scene {
 		this.controls.update();
 
 		this.scene.add(wall);
+	}
+
+	private initPostProcessing(): void {
+		this.composer = new EffectComposer(this.renderer);
+		this.composer.addPass(new RenderPass(this.scene, this.camera));
+		// const cshader = new ShaderPass(ToonShader1);
+		// console.log(cshader.uniforms);
+		// cshader.uniforms.uAmbientLightColor.value = new THREE.Color(0xffffff);
+		// cshader.uniforms.uDirLightColor.value = new THREE.Color(0xffffff);
+		// cshader.uniforms.uDirLightPos.value = new THREE.Vector3(0, 1, 0);
+		//
+		// const renderPass = new RenderPass( scene, camera );
+
+		const renderPass = new RenderPass(this.scene, this.camera);
+
+		// const tonemappingPass = new ShaderPass(ACESFilmicToneMappingShader);
+		//
+
+		const bloomPass = new UnrealBloomPass(
+			new THREE.Vector2(window.innerWidth, window.innerHeight),
+			1.5,
+			0.4,
+			0.01
+		);
+		const outputPass = new OutputPass();
+
+		// this.composer.addPass(renderPass);
+		// this.composer.addPass(tonemappingPass);
+		this.composer.addPass(bloomPass);
+		this.composer.addPass(outputPass);
 	}
 
 	private initScene(): void {
@@ -143,29 +191,35 @@ export class Scene {
 	}
 
 	private addLights(): void {
+		RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
+
+		const LAYER_VOLUMETRIC_LIGHTING = 10;
+
 		// Ambient light for base illumination
-		const ambientLight = new THREE.AmbientLight(new THREE.Color('white'), 0.6);
-		this.scene.add(ambientLight);
+		// const ambientLight = new THREE.AmbientLight(new THREE.Color('white'), 0.6);
+		// this.scene.add(ambientLight);
 
 		// Main directional light
-		const mainLight = new THREE.DirectionalLight(new THREE.Color('white'), 1.2);
-		mainLight.shadow.mapSize.width = 1024;
-		mainLight.shadow.mapSize.height = 1024;
-		mainLight.shadow.camera.near = 0.5;
-		mainLight.shadow.camera.far = 500;
-		mainLight.shadow.camera.left = -10;
-		mainLight.shadow.camera.right = 10;
-		mainLight.shadow.camera.top = 10;
-		mainLight.shadow.camera.bottom = -10;
-		mainLight.shadow.camera.updateProjectionMatrix();
-		mainLight.position.set(0, 3, 5);
-		mainLight.castShadow = true;
-		this.scene.add(mainLight);
+		const mainLight = new THREE.DirectionalLight(new THREE.Color('white'), 0.2);
+		// mainLight.shadow.mapSize.width = 1024;
+		// mainLight.shadow.mapSize.height = 1024;
+		// mainLight.shadow.camera.near = 0.5;
+		// mainLight.shadow.camera.far = 500;
+		// mainLight.shadow.camera.left = -10;
+		// mainLight.shadow.camera.right = 10;
+		// mainLight.shadow.camera.top = 10;
+		// mainLight.shadow.camera.bottom = -10;
+		// mainLight.shadow.camera.updateProjectionMatrix();
+		// mainLight.position.set(0, 3, 5);
+		// mainLight.castShadow = true;
+		// this.scene.add(mainLight);
 
-		// Fill light from opposite side
-		const fillLight = new THREE.DirectionalLight(new THREE.Color('blue'), 0.5);
-		fillLight.position.set(-5, 2, -5);
-		this.scene.add(fillLight);
+		const pointLight = new THREE.PointLight(new THREE.Color('white'), 5.2);
+		pointLight.position.set(0, 3, 5);
+		pointLight.scale.set(1.5, 1.5, 1.5);
+		pointLight.castShadow = true;
+		this.scene.add(pointLight);
+		this.pointLight = pointLight;
 	}
 
 	private onMouseMove(event: MouseEvent): void {
@@ -267,10 +321,12 @@ export class Scene {
 
 		this.ak74.traverse((child) => {
 			if (child instanceof THREE.Mesh) {
-				child.material = new THREE.MeshStandardMaterial({
-					color: new THREE.Color('white'),
-					metalness: 0.1,
-					roughness: 0.9
+				child.material = new THREE.MeshPhysicalMaterial({
+					color: new THREE.Color('black'),
+					metalness: 0.8,
+					roughness: 0.1,
+					clearcoat: 0.5,
+					clearcoatRoughness: 0.2
 				});
 			}
 		});
@@ -292,7 +348,7 @@ export class Scene {
 			const mat = mesh.material as THREE.MeshStandardMaterial;
 			mat.transparent = true;
 			mat.roughness = 0.5;
-			mat.metalness = 0.5;
+			mat.metalness = 0.1;
 			mat.opacity = 1;
 		});
 	}
@@ -326,10 +382,30 @@ export class Scene {
 		if (this.ak74) {
 			const mouse = this.mouse;
 			this.ak74.rotation.y = THREE.MathUtils.lerp(this.ak74.rotation.y, mouse.x * 0.1, delta * 10);
+			this.grassContainer.rotation.y = THREE.MathUtils.lerp(
+				this.grassContainer.rotation.y,
+				mouse.x * 0.05,
+				delta * 10
+			);
 		}
 
+		this.pointLight.position.x = THREE.MathUtils.lerp(
+			this.pointLight.position.x,
+			this.mouse.x * 10,
+			0.1
+		);
+		this.pointLight.position.y = THREE.MathUtils.lerp(
+			this.pointLight.position.y,
+			this.mouse.y * 10,
+			0.1
+		);
+
 		// Render the scene
-		this.renderer.render(this.scene, this.camera);
+		if (this.composer) {
+			this.composer.render();
+		} else {
+			this.renderer.render(this.scene, this.camera);
+		}
 	}
 
 	dispose(): void {
@@ -468,6 +544,7 @@ export class Scene {
 		// Create a container for all grass
 		const grassContainer = new THREE.Group();
 		grassContainer.name = 'grassContainer';
+		this.grassContainer = grassContainer;
 		this.scene.add(grassContainer);
 
 		// Use only the number of points we need
@@ -733,12 +810,15 @@ export class Scene {
 		petalMaterial.side = THREE.DoubleSide;
 		petalMaterial.transparent = true;
 
+		petalMaterial.blending = THREE.AdditiveBlending;
+
 		// Create instanced mesh for better performance
 		this.petalParticleSystem = new THREE.InstancedMesh(
 			petalGeometry,
 			petalMaterial,
 			this.PETAL_COUNT
 		);
+		this.petalParticleSystem.castShadow = true;
 		this.petalParticleSystem.frustumCulled = false;
 
 		// Initialize all petals as inactive
@@ -754,6 +834,7 @@ export class Scene {
 				),
 				scale: 0,
 				lifetime: 0,
+				initialPhase: Math.random() * Math.PI * 2,
 				maxLifetime: 0,
 				active: false
 			});
