@@ -1,24 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { BloomPass, OrbitControls } from 'three/examples/jsm/Addons.js';
+import { OrbitControls } from 'three/examples/jsm/Addons.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { GlitchPass } from 'three/addons/postprocessing/GlitchPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { LuminosityShader } from 'three/addons/shaders/LuminosityShader.js';
-import { ToonShader1 } from 'three/examples/jsm/Addons.js';
-// glow shader
-import { VignetteShader } from 'three/examples/jsm/shaders/VignetteShader.js';
-import { ACESFilmicToneMappingShader } from 'three/examples/jsm/shaders/ACESFilmicToneMappingShader.js';
-
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
-import GUI from 'three/examples/jsm/libs/lil-gui.module.min.js';
-
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
-import { RectAreaLightNode } from 'three/webgpu';
 
 // Improved interfaces for better type safety
 interface InteractiveObject {
@@ -77,6 +64,10 @@ export class Scene {
 	private activeGrassCount = 0;
 	private activePetalCount = 0;
 
+	private composer: EffectComposer | null = null;
+	private grassContainer: THREE.Object3D | null = null;
+	private pointLight: THREE.PointLight | null = null;
+
 	onLoadProgress?: (progress: number) => void;
 
 	constructor(canvas: HTMLCanvasElement) {
@@ -99,31 +90,12 @@ export class Scene {
 		wall.castShadow = true;
 		wall.receiveShadow = true;
 
-		this.controls = new OrbitControls(this.camera, this.canvas);
-		this.controls.enableDamping = true;
-		this.controls.dampingFactor = 0.05;
-		this.controls.minDistance = 2;
-		this.controls.maxDistance = 10;
-		this.controls.update();
-
 		this.scene.add(wall);
 	}
 
 	private initPostProcessing(): void {
 		this.composer = new EffectComposer(this.renderer);
 		this.composer.addPass(new RenderPass(this.scene, this.camera));
-		// const cshader = new ShaderPass(ToonShader1);
-		// console.log(cshader.uniforms);
-		// cshader.uniforms.uAmbientLightColor.value = new THREE.Color(0xffffff);
-		// cshader.uniforms.uDirLightColor.value = new THREE.Color(0xffffff);
-		// cshader.uniforms.uDirLightPos.value = new THREE.Vector3(0, 1, 0);
-		//
-		// const renderPass = new RenderPass( scene, camera );
-
-		const renderPass = new RenderPass(this.scene, this.camera);
-
-		// const tonemappingPass = new ShaderPass(ACESFilmicToneMappingShader);
-		//
 
 		const bloomPass = new UnrealBloomPass(
 			new THREE.Vector2(window.innerWidth, window.innerHeight),
@@ -133,8 +105,6 @@ export class Scene {
 		);
 		const outputPass = new OutputPass();
 
-		// this.composer.addPass(renderPass);
-		// this.composer.addPass(tonemappingPass);
 		this.composer.addPass(bloomPass);
 		this.composer.addPass(outputPass);
 	}
@@ -191,29 +161,6 @@ export class Scene {
 	}
 
 	private addLights(): void {
-		RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
-
-		const LAYER_VOLUMETRIC_LIGHTING = 10;
-
-		// Ambient light for base illumination
-		// const ambientLight = new THREE.AmbientLight(new THREE.Color('white'), 0.6);
-		// this.scene.add(ambientLight);
-
-		// Main directional light
-		const mainLight = new THREE.DirectionalLight(new THREE.Color('white'), 0.2);
-		// mainLight.shadow.mapSize.width = 1024;
-		// mainLight.shadow.mapSize.height = 1024;
-		// mainLight.shadow.camera.near = 0.5;
-		// mainLight.shadow.camera.far = 500;
-		// mainLight.shadow.camera.left = -10;
-		// mainLight.shadow.camera.right = 10;
-		// mainLight.shadow.camera.top = 10;
-		// mainLight.shadow.camera.bottom = -10;
-		// mainLight.shadow.camera.updateProjectionMatrix();
-		// mainLight.position.set(0, 3, 5);
-		// mainLight.castShadow = true;
-		// this.scene.add(mainLight);
-
 		const pointLight = new THREE.PointLight(new THREE.Color('white'), 5.2);
 		pointLight.position.set(0, 3, 5);
 		pointLight.scale.set(1.5, 1.5, 1.5);
@@ -379,9 +326,12 @@ export class Scene {
 			this.updatePetals(delta);
 		}
 
+		const mouse = this.mouse;
+
 		if (this.ak74) {
-			const mouse = this.mouse;
 			this.ak74.rotation.y = THREE.MathUtils.lerp(this.ak74.rotation.y, mouse.x * 0.1, delta * 10);
+		}
+		if (this.grassContainer) {
 			this.grassContainer.rotation.y = THREE.MathUtils.lerp(
 				this.grassContainer.rotation.y,
 				mouse.x * 0.05,
@@ -389,20 +339,22 @@ export class Scene {
 			);
 		}
 
-		this.pointLight.position.x = THREE.MathUtils.lerp(
-			this.pointLight.position.x,
-			this.mouse.x * 10,
-			0.1
-		);
-		this.pointLight.position.y = THREE.MathUtils.lerp(
-			this.pointLight.position.y,
-			this.mouse.y * 10,
-			0.1
-		);
+		if (this.pointLight) {
+			this.pointLight.position.x = THREE.MathUtils.lerp(
+				this.pointLight.position.x,
+				this.mouse.x * 10,
+				0.1
+			);
+			this.pointLight.position.y = THREE.MathUtils.lerp(
+				this.pointLight.position.y,
+				this.mouse.y * 10,
+				0.1
+			);
+		}
 
 		// Render the scene
 		if (this.composer) {
-			this.composer.render();
+			this.composer.render(delta);
 		} else {
 			this.renderer.render(this.scene, this.camera);
 		}
